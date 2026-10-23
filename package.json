@@ -1,0 +1,23 @@
+{
+	"name": "obsidian-3d-animation-with-toggle",
+	"version": "1.0.0",
+	"description": "Adds Start 3D animation and a 2D/3D toggle under the graph view's timelapse button. Plays the vault's notes, subvault by subvault, in 3D from day one.",
+	"main": "main.js",
+	"private": true,
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production"
+	},
+	"license": "MIT",
+	"dependencies": {
+		"d3-force-3d": "3.0.6",
+		"three": "0.186.1"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"@types/three": "0.186.0",
+		"esbuild": "0.28.2",
+		"obsidian": "1.14.4",
+		"typescript": "~5.9.0"
+	}
+}

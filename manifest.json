@@ -1,0 +1,9 @@
+{
+	"id": "3d-animation-with-toggle",
+	"name": "3D Animation with Toggle",
+	"version": "1.0.0",
+	"minAppVersion": "1.6.0",
+	"description": "Adds Start 3D animation and a 2D/3D toggle under the graph view's timelapse button. In 3D each subvault is its own coloured cluster, and the animation grows the vault from day one.",
+	"author": "Zack",
+	"isDesktopOnly": true
+}

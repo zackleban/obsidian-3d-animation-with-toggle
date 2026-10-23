@@ -1,0 +1,127 @@
+/*
+ * 3D Animation with Toggle. The button and the 2D/3D toggle sit in the graph's controls column, under the
+ * timelapse wand, and show only while the settings panel is closed, like the wand. Same purple as File Placer.
+ */
+body {
+	--three-d-accent: #7c3aed;
+	--three-d-accent-text: #ffffff;
+}
+
+.graph-controls-button.mod-animate-3d {
+	margin-top: var(--size-4-1);
+}
+
+.graph-controls.is-close .graph-controls-button.mod-animate-3d {
+	display: flex;
+}
+
+.graph-controls-button.mod-animate-3d.is-running {
+	color: var(--three-d-accent);
+}
+
+.three-d-toggle {
+	display: none;
+	flex-direction: column;
+	margin-top: var(--size-4-1);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	overflow: hidden;
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	text-align: center;
+	cursor: pointer;
+}
+
+.graph-controls.is-close .three-d-toggle {
+	display: flex;
+}
+
+.three-d-toggle-option {
+	padding: 2px 0;
+	color: var(--text-muted);
+}
+
+.three-d-toggle-option:hover {
+	background: var(--background-modifier-hover);
+}
+
+.three-d-toggle-option.is-active {
+	background: var(--three-d-accent);
+	color: var(--three-d-accent-text);
+}
+
+/* The 3D picture covers the 2D graph; the graph's controls stay above it. */
+.three-d-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	background: var(--background-primary);
+	overflow: hidden;
+}
+
+.workspace-split:not(.mod-root) .three-d-overlay {
+	background: var(--background-secondary);
+}
+
+.three-d-overlay ~ .graph-controls,
+.view-content:has(> .three-d-overlay) > .graph-controls {
+	z-index: 2;
+}
+
+.three-d-canvas,
+.three-d-canvas canvas {
+	position: absolute;
+	inset: 0;
+}
+
+.three-d-day {
+	position: absolute;
+	top: var(--size-4-2);
+	left: var(--size-4-3);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	font-variant-numeric: tabular-nums;
+	pointer-events: none;
+}
+
+.three-d-legend {
+	position: absolute;
+	bottom: var(--size-4-2);
+	left: var(--size-4-3);
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	pointer-events: none;
+}
+
+.three-d-legend-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.three-d-swatch {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+}
+
+.three-d-tip {
+	position: absolute;
+	display: none;
+	padding: 4px 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+	box-shadow: var(--shadow-s);
+	pointer-events: none;
+	white-space: nowrap;
+}
+
+.three-d-tip.is-shown {
+	display: block;
+}
