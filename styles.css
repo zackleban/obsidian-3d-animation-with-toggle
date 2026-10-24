@@ -74,6 +74,11 @@ body {
 	inset: 0;
 }
 
+/* Pressed and held: the picture is in the hand, and the pointer shows it, over a note too. */
+.three-d-overlay.is-grabbing canvas {
+	cursor: grabbing !important;
+}
+
 .three-d-day {
 	position: absolute;
 	top: var(--size-4-2);

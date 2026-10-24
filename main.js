@@ -30362,6 +30362,8 @@ var SPIN = 0.08;
 var ZOOM_IN = 0.4;
 var ZOOM_MS = 350;
 var CLICK_WAIT_MS = 250;
+var HOLD_MS = 250;
+var STILL_PX = 4;
 var POP_MS = 450;
 var GraphScene = class {
   constructor(parent, hooks) {
@@ -30390,6 +30392,9 @@ var GraphScene = class {
     this.hovered = -1;
     this.downAt = null;
     this.openTimer = 0;
+    this.holdTimer = 0;
+    // Where the mouse was on the last move while the picture is grabbed; null when it isn't.
+    this.grabbedAt = null;
     this.zoom = null;
     this.loop = () => {
       this.frame = this.el.win.requestAnimationFrame(this.loop);
@@ -30411,7 +30416,7 @@ var GraphScene = class {
       if (this.sim && this.sim.alpha() > this.sim.alphaMin()) this.sim.tick();
       this.place(now2);
       if (this.follow) this.frameAll();
-      if (this.spinning) {
+      if (this.spinning && !this.grabbedAt) {
         const turn = SPIN * Math.min(100, now2 - this.lastFrame) / 1e3;
         this.camera.position.sub(this.controls.target).applyAxisAngle(this.camera.up, turn).add(this.controls.target);
         this.camera.lookAt(this.controls.target);
@@ -30443,8 +30448,9 @@ var GraphScene = class {
     const canvas = this.renderer.domElement;
     canvas.addEventListener("pointermove", (e) => this.onMove(e));
     canvas.addEventListener("pointerleave", () => this.setHover(-1));
-    canvas.addEventListener("pointerdown", (e) => this.downAt = { x: e.clientX, y: e.clientY });
+    canvas.addEventListener("pointerdown", (e) => this.onDown(e));
     canvas.addEventListener("pointerup", (e) => this.onUp(e));
+    canvas.addEventListener("pointercancel", () => this.release());
     canvas.addEventListener("dblclick", (e) => this.onDoubleClick(e));
     this.resize = new ResizeObserver(() => this.fit());
     this.resize.observe(this.el);
@@ -30482,6 +30488,7 @@ var GraphScene = class {
   destroy() {
     this.el.win.cancelAnimationFrame(this.frame);
     this.el.win.clearTimeout(this.openTimer);
+    this.el.win.clearTimeout(this.holdTimer);
     this.resize.disconnect();
     this.sim?.stop();
     this.controls.dispose();
@@ -30632,7 +30639,47 @@ var GraphScene = class {
       row.createSpan({ text: `${name} (${counts[i]})` });
     });
   }
+  onDown(e) {
+    this.downAt = { x: e.clientX, y: e.clientY };
+    this.el.win.clearTimeout(this.holdTimer);
+    if (e.button !== 0) return;
+    this.holdTimer = this.el.win.setTimeout(() => this.grab(e.clientX, e.clientY), HOLD_MS);
+  }
+  // From here until the button comes up, the drag slides the picture and never turns it.
+  grab(x2, y2) {
+    this.grabbedAt = { x: x2, y: y2 };
+    this.controls.noRotate = true;
+    this.follow = false;
+    this.setHover(-1);
+    this.el.addClass("is-grabbing");
+  }
+  release() {
+    this.el.win.clearTimeout(this.holdTimer);
+    if (!this.grabbedAt) return;
+    this.grabbedAt = null;
+    this.controls.noRotate = false;
+    this.el.removeClass("is-grabbing");
+  }
+  // Moves the camera and its centre of turn together, sideways and up or down on screen, so the spot under the
+  // mouse at the centre's depth stays under the mouse.
+  slide(dx, dy) {
+    const h = Math.max(1, this.renderer.domElement.clientHeight);
+    const depth = this.camera.position.distanceTo(this.controls.target);
+    const perPixel = 2 * depth * Math.tan(MathUtils.degToRad(this.camera.fov) / 2) / h;
+    const right = new Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+    const up = new Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+    const shift = right.multiplyScalar(-dx * perPixel).addScaledVector(up, dy * perPixel);
+    this.camera.position.add(shift);
+    this.controls.target.add(shift);
+  }
   onMove(e) {
+    const down = this.downAt;
+    if (this.grabbedAt) {
+      this.slide(e.clientX - this.grabbedAt.x, e.clientY - this.grabbedAt.y);
+      this.grabbedAt = { x: e.clientX, y: e.clientY };
+      return;
+    }
+    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > STILL_PX) this.el.win.clearTimeout(this.holdTimer);
     if (!this.dots || e.buttons !== 0) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const hit = this.rayAt(e).intersectObject(this.dots)[0];
@@ -30651,8 +30698,10 @@ var GraphScene = class {
   }
   onUp(e) {
     const down = this.downAt;
+    const grabbed = this.grabbedAt !== null;
     this.downAt = null;
-    if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+    this.release();
+    if (grabbed || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > STILL_PX) return;
     const note = this.hovered >= 0 ? this.graph?.notes[this.hovered] : void 0;
     if (!note) return;
     this.el.win.clearTimeout(this.openTimer);

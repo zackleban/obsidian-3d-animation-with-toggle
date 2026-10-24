@@ -17,6 +17,10 @@ const ZOOM_IN = 0.4;
 const ZOOM_MS = 350;
 // A click on a note waits this long for a second click before opening it.
 const CLICK_WAIT_MS = 250;
+// Pressing and holding still this long grabs the picture: dragging then moves it instead of turning it.
+const HOLD_MS = 250;
+// A press that moves further than this, in pixels, is a turn or a click-drag, not a hold.
+const STILL_PX = 4;
 // A new note grows to full size over this long.
 const POP_MS = 450;
 
@@ -72,6 +76,9 @@ export class GraphScene {
 	private hovered = -1;
 	private downAt: { x: number; y: number } | null = null;
 	private openTimer = 0;
+	private holdTimer = 0;
+	// Where the mouse was on the last move while the picture is grabbed; null when it isn't.
+	private grabbedAt: { x: number; y: number } | null = null;
 	private zoom: { start: number; pos: THREE.Vector3[]; target: THREE.Vector3[] } | null = null;
 
 	constructor(parent: HTMLElement, private hooks: SceneHooks) {
@@ -101,8 +108,9 @@ export class GraphScene {
 		const canvas = this.renderer.domElement;
 		canvas.addEventListener("pointermove", (e) => this.onMove(e));
 		canvas.addEventListener("pointerleave", () => this.setHover(-1));
-		canvas.addEventListener("pointerdown", (e) => (this.downAt = { x: e.clientX, y: e.clientY }));
+		canvas.addEventListener("pointerdown", (e) => this.onDown(e));
 		canvas.addEventListener("pointerup", (e) => this.onUp(e));
+		canvas.addEventListener("pointercancel", () => this.release());
 		canvas.addEventListener("dblclick", (e) => this.onDoubleClick(e));
 
 		this.resize = new ResizeObserver(() => this.fit());
@@ -146,6 +154,7 @@ export class GraphScene {
 	destroy() {
 		this.el.win.cancelAnimationFrame(this.frame);
 		this.el.win.clearTimeout(this.openTimer);
+		this.el.win.clearTimeout(this.holdTimer);
 		this.resize.disconnect();
 		this.sim?.stop();
 		this.controls.dispose();
@@ -266,7 +275,8 @@ export class GraphScene {
 		if (this.sim && this.sim.alpha() > this.sim.alphaMin()) this.sim.tick();
 		this.place(now);
 		if (this.follow) this.frameAll();
-		if (this.spinning) {
+		// Holding the picture stops the turn, so it sits still in the hand.
+		if (this.spinning && !this.grabbedAt) {
 			const turn = (SPIN * Math.min(100, now - this.lastFrame)) / 1000;
 			this.camera.position.sub(this.controls.target).applyAxisAngle(this.camera.up, turn).add(this.controls.target);
 			this.camera.lookAt(this.controls.target);
@@ -352,7 +362,51 @@ export class GraphScene {
 		});
 	}
 
+	private onDown(e: PointerEvent) {
+		this.downAt = { x: e.clientX, y: e.clientY };
+		this.el.win.clearTimeout(this.holdTimer);
+		if (e.button !== 0) return;
+		this.holdTimer = this.el.win.setTimeout(() => this.grab(e.clientX, e.clientY), HOLD_MS);
+	}
+
+	// From here until the button comes up, the drag slides the picture and never turns it.
+	private grab(x: number, y: number) {
+		this.grabbedAt = { x, y };
+		this.controls.noRotate = true;
+		this.follow = false;
+		this.setHover(-1);
+		this.el.addClass("is-grabbing");
+	}
+
+	private release() {
+		this.el.win.clearTimeout(this.holdTimer);
+		if (!this.grabbedAt) return;
+		this.grabbedAt = null;
+		this.controls.noRotate = false;
+		this.el.removeClass("is-grabbing");
+	}
+
+	// Moves the camera and its centre of turn together, sideways and up or down on screen, so the spot under the
+	// mouse at the centre's depth stays under the mouse.
+	private slide(dx: number, dy: number) {
+		const h = Math.max(1, this.renderer.domElement.clientHeight);
+		const depth = this.camera.position.distanceTo(this.controls.target);
+		const perPixel = (2 * depth * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) / h;
+		const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+		const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+		const shift = right.multiplyScalar(-dx * perPixel).addScaledVector(up, dy * perPixel);
+		this.camera.position.add(shift);
+		this.controls.target.add(shift);
+	}
+
 	private onMove(e: PointerEvent) {
+		const down = this.downAt;
+		if (this.grabbedAt) {
+			this.slide(e.clientX - this.grabbedAt.x, e.clientY - this.grabbedAt.y);
+			this.grabbedAt = { x: e.clientX, y: e.clientY };
+			return;
+		}
+		if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > STILL_PX) this.el.win.clearTimeout(this.holdTimer);
 		if (!this.dots || e.buttons !== 0) return;
 		const rect = this.renderer.domElement.getBoundingClientRect();
 		const hit = this.rayAt(e).intersectObject(this.dots)[0];
@@ -373,8 +427,10 @@ export class GraphScene {
 
 	private onUp(e: PointerEvent) {
 		const down = this.downAt;
+		const grabbed = this.grabbedAt !== null;
 		this.downAt = null;
-		if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+		this.release();
+		if (grabbed || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > STILL_PX) return;
 		const note = this.hovered >= 0 ? this.graph?.notes[this.hovered] : undefined;
 		if (!note) return;
 		this.el.win.clearTimeout(this.openTimer);
