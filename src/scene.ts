@@ -12,6 +12,11 @@ const MIN_RUN_MS = 8000;
 const MAX_RUN_MS = 40000;
 // During a run the camera turns this fast, in radians a second.
 const SPIN = 0.08;
+// A double-click brings the camera this much closer to where it lands (Alt: this much further), over ZOOM_MS.
+const ZOOM_IN = 0.4;
+const ZOOM_MS = 350;
+// A click on a note waits this long for a second click before opening it.
+const CLICK_WAIT_MS = 250;
 // A new note grows to full size over this long.
 const POP_MS = 450;
 
@@ -66,6 +71,8 @@ export class GraphScene {
 	private pointer = new THREE.Vector2();
 	private hovered = -1;
 	private downAt: { x: number; y: number } | null = null;
+	private openTimer = 0;
+	private zoom: { start: number; pos: THREE.Vector3[]; target: THREE.Vector3[] } | null = null;
 
 	constructor(parent: HTMLElement, private hooks: SceneHooks) {
 		this.el = parent.createDiv("three-d-overlay");
@@ -96,6 +103,7 @@ export class GraphScene {
 		canvas.addEventListener("pointerleave", () => this.setHover(-1));
 		canvas.addEventListener("pointerdown", (e) => (this.downAt = { x: e.clientX, y: e.clientY }));
 		canvas.addEventListener("pointerup", (e) => this.onUp(e));
+		canvas.addEventListener("dblclick", (e) => this.onDoubleClick(e));
 
 		this.resize = new ResizeObserver(() => this.fit());
 		this.resize.observe(this.el);
@@ -137,6 +145,7 @@ export class GraphScene {
 
 	destroy() {
 		this.el.win.cancelAnimationFrame(this.frame);
+		this.el.win.clearTimeout(this.openTimer);
 		this.resize.disconnect();
 		this.sim?.stop();
 		this.controls.dispose();
@@ -263,6 +272,7 @@ export class GraphScene {
 			this.camera.lookAt(this.controls.target);
 		}
 		this.lastFrame = now;
+		this.stepZoom(now);
 		this.controls.update();
 		this.renderer.render(this.scene, this.camera);
 	};
@@ -345,10 +355,7 @@ export class GraphScene {
 	private onMove(e: PointerEvent) {
 		if (!this.dots || e.buttons !== 0) return;
 		const rect = this.renderer.domElement.getBoundingClientRect();
-		this.pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-		const ray = new THREE.Raycaster();
-		ray.setFromCamera(this.pointer, this.camera);
-		const hit = ray.intersectObject(this.dots)[0];
+		const hit = this.rayAt(e).intersectObject(this.dots)[0];
 		this.setHover(hit?.instanceId ?? -1);
 		if (this.hovered >= 0) {
 			this.tipEl.style.left = `${e.clientX - rect.left + 14}px`;
@@ -369,7 +376,47 @@ export class GraphScene {
 		this.downAt = null;
 		if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
 		const note = this.hovered >= 0 ? this.graph?.notes[this.hovered] : undefined;
-		if (note) this.hooks.open(note.path);
+		if (!note) return;
+		this.el.win.clearTimeout(this.openTimer);
+		this.openTimer = this.el.win.setTimeout(() => this.hooks.open(note.path), CLICK_WAIT_MS);
+	}
+
+	// Zooms around the spot under the mouse: that spot stays where it is on screen while everything else closes in.
+	private onDoubleClick(e: MouseEvent) {
+		this.el.win.clearTimeout(this.openTimer);
+		const ray = this.rayAt(e);
+		const hit = this.dots ? ray.intersectObject(this.dots)[0] : undefined;
+		const target = this.controls.target;
+		// Off the dots, the spot is on the plane through the camera's centre of turn, facing the camera.
+		const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(this.camera.getWorldDirection(new THREE.Vector3()), target);
+		const spot = hit?.point ?? ray.ray.intersectPlane(plane, new THREE.Vector3());
+		if (!spot) return;
+		const k = e.altKey ? 1 / ZOOM_IN : ZOOM_IN;
+		const toward = (v: THREE.Vector3) => spot.clone().addScaledVector(v.clone().sub(spot), k);
+		this.follow = false;
+		this.zoom = {
+			start: performance.now(),
+			pos: [this.camera.position.clone(), toward(this.camera.position)],
+			target: [target.clone(), toward(target)],
+		};
+	}
+
+	private stepZoom(now: number) {
+		const z = this.zoom;
+		if (!z) return;
+		const t = Math.min(1, (now - z.start) / ZOOM_MS);
+		const ease = 1 - Math.pow(1 - t, 3);
+		this.camera.position.lerpVectors(z.pos[0], z.pos[1], ease);
+		this.controls.target.lerpVectors(z.target[0], z.target[1], ease);
+		if (t >= 1) this.zoom = null;
+	}
+
+	private rayAt(e: MouseEvent) {
+		const rect = this.renderer.domElement.getBoundingClientRect();
+		this.pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+		const ray = new THREE.Raycaster();
+		ray.setFromCamera(this.pointer, this.camera);
+		return ray;
 	}
 
 	private fit() {

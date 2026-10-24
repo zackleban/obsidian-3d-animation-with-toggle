@@ -30359,6 +30359,9 @@ var MS_PER_DAY = 60;
 var MIN_RUN_MS = 8e3;
 var MAX_RUN_MS = 4e4;
 var SPIN = 0.08;
+var ZOOM_IN = 0.4;
+var ZOOM_MS = 350;
+var CLICK_WAIT_MS = 250;
 var POP_MS = 450;
 var GraphScene = class {
   constructor(parent, hooks) {
@@ -30386,6 +30389,8 @@ var GraphScene = class {
     this.pointer = new Vector2();
     this.hovered = -1;
     this.downAt = null;
+    this.openTimer = 0;
+    this.zoom = null;
     this.loop = () => {
       this.frame = this.el.win.requestAnimationFrame(this.loop);
       const now2 = performance.now();
@@ -30412,6 +30417,7 @@ var GraphScene = class {
         this.camera.lookAt(this.controls.target);
       }
       this.lastFrame = now2;
+      this.stepZoom(now2);
       this.controls.update();
       this.renderer.render(this.scene, this.camera);
     };
@@ -30439,6 +30445,7 @@ var GraphScene = class {
     canvas.addEventListener("pointerleave", () => this.setHover(-1));
     canvas.addEventListener("pointerdown", (e) => this.downAt = { x: e.clientX, y: e.clientY });
     canvas.addEventListener("pointerup", (e) => this.onUp(e));
+    canvas.addEventListener("dblclick", (e) => this.onDoubleClick(e));
     this.resize = new ResizeObserver(() => this.fit());
     this.resize.observe(this.el);
     this.fit();
@@ -30474,6 +30481,7 @@ var GraphScene = class {
   }
   destroy() {
     this.el.win.cancelAnimationFrame(this.frame);
+    this.el.win.clearTimeout(this.openTimer);
     this.resize.disconnect();
     this.sim?.stop();
     this.controls.dispose();
@@ -30627,10 +30635,7 @@ var GraphScene = class {
   onMove(e) {
     if (!this.dots || e.buttons !== 0) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
-    this.pointer.set((e.clientX - rect.left) / rect.width * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-    const ray = new Raycaster();
-    ray.setFromCamera(this.pointer, this.camera);
-    const hit = ray.intersectObject(this.dots)[0];
+    const hit = this.rayAt(e).intersectObject(this.dots)[0];
     this.setHover(hit?.instanceId ?? -1);
     if (this.hovered >= 0) {
       this.tipEl.style.left = `${e.clientX - rect.left + 14}px`;
@@ -30649,7 +30654,43 @@ var GraphScene = class {
     this.downAt = null;
     if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
     const note = this.hovered >= 0 ? this.graph?.notes[this.hovered] : void 0;
-    if (note) this.hooks.open(note.path);
+    if (!note) return;
+    this.el.win.clearTimeout(this.openTimer);
+    this.openTimer = this.el.win.setTimeout(() => this.hooks.open(note.path), CLICK_WAIT_MS);
+  }
+  // Zooms around the spot under the mouse: that spot stays where it is on screen while everything else closes in.
+  onDoubleClick(e) {
+    this.el.win.clearTimeout(this.openTimer);
+    const ray = this.rayAt(e);
+    const hit = this.dots ? ray.intersectObject(this.dots)[0] : void 0;
+    const target = this.controls.target;
+    const plane = new Plane().setFromNormalAndCoplanarPoint(this.camera.getWorldDirection(new Vector3()), target);
+    const spot = hit?.point ?? ray.ray.intersectPlane(plane, new Vector3());
+    if (!spot) return;
+    const k = e.altKey ? 1 / ZOOM_IN : ZOOM_IN;
+    const toward = (v) => spot.clone().addScaledVector(v.clone().sub(spot), k);
+    this.follow = false;
+    this.zoom = {
+      start: performance.now(),
+      pos: [this.camera.position.clone(), toward(this.camera.position)],
+      target: [target.clone(), toward(target)]
+    };
+  }
+  stepZoom(now2) {
+    const z2 = this.zoom;
+    if (!z2) return;
+    const t = Math.min(1, (now2 - z2.start) / ZOOM_MS);
+    const ease = 1 - Math.pow(1 - t, 3);
+    this.camera.position.lerpVectors(z2.pos[0], z2.pos[1], ease);
+    this.controls.target.lerpVectors(z2.target[0], z2.target[1], ease);
+    if (t >= 1) this.zoom = null;
+  }
+  rayAt(e) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.set((e.clientX - rect.left) / rect.width * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    const ray = new Raycaster();
+    ray.setFromCamera(this.pointer, this.camera);
+    return ray;
   }
   fit() {
     const w = Math.max(1, this.el.clientWidth);

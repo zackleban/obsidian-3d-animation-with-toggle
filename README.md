@@ -11,8 +11,9 @@ timelapse wand ("Start timelapse animation"), it adds:
 
 Like the wand, both show while the graph settings panel is closed, and only in the global graph (not the local graph).
 
-In 3D, drag to turn, scroll to zoom, right-drag to pan. Hover a dot for the note's name and subvault; click it to open
-the note. The legend at the bottom left lists each subvault, its colour and how many notes it holds.
+In 3D, drag to turn (it keeps going past the top and bottom, as freely as side to side), scroll to zoom, right-drag
+to pan. Double-click to zoom in around the spot you clicked: that spot stays under the mouse while everything closes in.
+Alt-double-click zooms back out the same way. Hover a dot for the note's name and subvault; click it to open the note. The legend at the bottom left lists each subvault, its colour and how many notes it holds.
 
 ## Subvaults
 
